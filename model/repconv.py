@@ -58,9 +58,9 @@ class repconv(nn.Module):
             dim=(1, 2, 3)) + self.conv_shrink.bias
 
         if self.shortcut:
-            kernel_value = torch.zeros((self.channels, self.channels, 3, 3))
+            kernel_value = torch.zeros((self.channels, self.channels, self.kernel_size, self.kernel_size))
             for i in range(self.channels):
-                kernel_value[i, i, 1, 1] = 1
+                kernel_value[i, i, self.kernel_size//2, self.kernel_size//2] = 1
             weight = weight + kernel_value.to(weight.device)
         # assign param
         self.conv.weight = nn.Parameter(weight,requires_grad=False)
@@ -97,8 +97,8 @@ if __name__ == '__main__':
     # build netwark
     c1 = repconv(3,32,3) # 3x3, w/o residual connection
     c2 = repconv(32,32,1) # 1x1, with residual connection
-    c3 = repconv(32,16,3) # 3x3, w/o residual connection
-    c4 = repconv(16,16,1) # 1x1, with residual connection
+    c3 = repconv(32,32,3) # 3x3, with residual connection
+    c4 = repconv(32,3,1) # 1x1, w/o residual connection
     c1.to(device), c2.to(device), c3.to(device), c4.to(device)
     # generate input image
     x = torch.randn(1,3,100,100)
@@ -106,8 +106,8 @@ if __name__ == '__main__':
     # train forward
     y1 = c4(F.relu(c3(F.relu(c2(F.relu(c1(x)))))))
     # reparameter
-    c1.rep(), c2.rep(), c3.rep(), c4.rep()
+    c1.eval(), c2.eval(), c3.eval(), c4.eval()
     # test forward
     y2 = c4(F.relu(c3(F.relu(c2(F.relu(c1(x)))))))
     # error
-    print((y1-y2).abs().mean())
+    print((y1-y2).abs().mean()) # 2.8680e-08
