@@ -3,6 +3,7 @@ import os.path
 import cv2
 import numpy as np
 from data import common
+import random
 
 def default_loader(path):
     return cv2.imread(path, cv2.IMREAD_UNCHANGED)[:, :, [2, 1, 0]]
@@ -37,7 +38,6 @@ class div2k(data.Dataset):
         self.root = self.opt.root
         self.ext = self.opt.ext   # '.png' or '.npy'(default)
         self.train = True if self.opt.phase == 'train' else False
-        self.repeat = self.opt.test_every // (self.opt.n_train // self.opt.batch_size)
         self._set_filesystem(self.root)
         self.images_hr, self.images_lr = self._scan()
 
@@ -53,14 +53,7 @@ class div2k(data.Dataset):
         return lr, hr
 
     def __len__(self):
-        if self.train:
-            return self.opt.n_train * self.repeat
-
-    def _get_index(self, idx):
-        if self.train:
-            return idx % self.opt.n_train
-        else:
-            return idx
+        return self.opt.n_train
 
     def _get_patch(self, img_in, img_tar):
         patch_size = self.opt.patch_size
@@ -80,7 +73,6 @@ class div2k(data.Dataset):
         return list_hr, list_lr
 
     def _load_file(self, idx):
-        idx = self._get_index(idx)
         if self.ext == '.npy':
             lr = npy_loader(self.images_lr[idx])
             hr = npy_loader(self.images_hr[idx])
@@ -88,3 +80,56 @@ class div2k(data.Dataset):
             lr = default_loader(self.images_lr[idx])
             hr = default_loader(self.images_hr[idx])
         return lr, hr
+
+class Flickr(data.Dataset):
+    """Dataset for Flickr, i.e., train dataset.
+    """
+    def __init__(self, opt,root, scale=4,ext='.png'):
+        self.opt=opt
+        self.scale = scale
+        self.root = root
+        self.ext = ext
+        self.train = True
+        self.images_hr = sorted(make_dataset(self.root))
+
+    def __getitem__(self, idx):
+        hr = self._load_file(idx) #load image (load ndarray instead to accelerate).
+        hr = self._get_patch(hr) #data augment
+        hr = common.set_channel(hr, n_channels=self.opt.n_colors)[0].copy()
+        lr = common.imresize_np(hr, 1/self.scale,True)
+        lr, hr = common.np2Tensor(lr, hr, rgb_range=self.opt.rgb_range)
+        return lr, hr
+
+    def __len__(self):
+        return len(self.images_hr)
+
+
+    def _get_patch(self, img_tar):
+        patch_size = self.opt.patch_size
+        h, w = img_tar.shape[:2]
+        if self.train:
+            ix = random.randrange(0, w - patch_size + 1)
+            iy = random.randrange(0, h - patch_size + 1)
+            img_tar = img_tar[iy:iy+patch_size,ix:ix+patch_size,:]
+            img_tar = common.augment(img_tar)[0]
+        return img_tar
+
+    def _load_file(self, idx):
+        if self.ext == '.npy':
+            hr = npy_loader(self.images_hr[idx])
+        else:
+            hr = default_loader(self.images_hr[idx])
+        return  hr
+
+class RepeatDataset(data.Dataset):
+    def __init__(self, dataset, repeat=20):
+        self.dataset = dataset
+        self.repeat = repeat
+        self.len = len(dataset)
+
+    def __getitem__(self, idx):
+        idx = idx % self.len
+        return self.dataset.__getitem__(idx)
+
+    def __len__(self):
+        return self.len*self.repeat
